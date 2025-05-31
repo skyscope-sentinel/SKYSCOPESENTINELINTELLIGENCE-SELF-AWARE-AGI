@@ -1,9 +1,10 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
                              QLineEdit, QPushButton, QLabel, QListWidget,
-                             QSpinBox, QTextBrowser, QFileDialog, QListWidgetItem, QMessageBox) # Added QMessageBox
+                             QSpinBox, QTextBrowser, QFileDialog, QListWidgetItem, QMessageBox,
+                             QGroupBox, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QTextEdit) # Added new imports
 from PyQt6.QtCore import Qt
 from core.memory_manager import list_saved_conversations, MEMORY_DIR
-from core.tuning_manager import TuningManager # Import TuningManager
+from core.tuning_manager import TuningManager
 import os
 
 class FineTuningHubWidget(QWidget):
@@ -97,10 +98,44 @@ class FineTuningHubWidget(QWidget):
 
         main_layout.addLayout(output_model_layout)
 
+        # --- Behavior Customization Section (Optional) ---
+        behavior_groupbox = QGroupBox("Behavior Customization (Optional)")
+        behavior_groupbox.setToolTip("Define a system prompt and/or example conversation turns to guide the model's behavior and response style.")
+        behavior_layout = QVBoxLayout()
+
+        # System Prompt
+        behavior_layout.addWidget(QLabel("System Prompt:"))
+        self.system_prompt_input = QTextEdit()
+        self.system_prompt_input.setPlaceholderText("e.g., You are a helpful AI assistant specialized in creative writing.")
+        self.system_prompt_input.setFixedHeight(80) # Adjust as needed
+        behavior_layout.addWidget(self.system_prompt_input)
+
+        # Example Conversation Turns
+        behavior_layout.addWidget(QLabel("Example Conversation Turns:"))
+        self.example_messages_table = QTableWidget()
+        self.example_messages_table.setColumnCount(2)
+        self.example_messages_table.setHorizontalHeaderLabels(["Role", "Content"])
+        self.example_messages_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.example_messages_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.example_messages_table.setMinimumHeight(150) # Ensure it's visible
+        behavior_layout.addWidget(self.example_messages_table)
+
+        example_buttons_layout = QHBoxLayout()
+        self.add_example_turn_button = QPushButton("Add Example Turn")
+        self.remove_example_turn_button = QPushButton("Remove Selected Turn")
+        example_buttons_layout.addWidget(self.add_example_turn_button)
+        example_buttons_layout.addWidget(self.remove_example_turn_button)
+        example_buttons_layout.addStretch()
+        behavior_layout.addLayout(example_buttons_layout)
+
+        behavior_groupbox.setLayout(behavior_layout)
+        main_layout.addWidget(behavior_groupbox)
+
+
         # --- Action Button ---
         action_button_layout = QHBoxLayout()
-        self.start_tuning_button = QPushButton("Generate Training Script & Monitor") # Changed text
-        self.start_tuning_button.setObjectName("StartTuningButton") # Object name for QSS
+        self.start_tuning_button = QPushButton("Generate Training Script & Monitor")
+        self.start_tuning_button.setObjectName("StartTuningButton")
         self.start_tuning_button.setStyleSheet("background-color: #007bff; color: white; font-weight: bold; padding: 10px;") # Make it prominent
         self.start_tuning_button.setToolTip("Click to generate the Python training script and instructions. The application will then monitor for the trained adapter.") # Added tooltip
         action_button_layout.addStretch()
@@ -126,6 +161,33 @@ class FineTuningHubWidget(QWidget):
         self.add_files_button.clicked.connect(self._add_local_files)
         self.clear_files_button.clicked.connect(self._clear_local_files)
         self.start_tuning_button.clicked.connect(self._start_fine_tuning)
+        self.add_example_turn_button.clicked.connect(self._add_example_turn)
+        self.remove_example_turn_button.clicked.connect(self._remove_selected_turn)
+
+    def _add_example_turn(self):
+        row_position = self.example_messages_table.rowCount()
+        self.example_messages_table.insertRow(row_position)
+
+        role_combo = QComboBox()
+        role_combo.addItems(["user", "assistant", "system"]) # Common roles
+
+        # Create a QTableWidgetItem to host the QComboBox
+        # This is a bit tricky; QTableWidget usually wants QTableWidgetItems.
+        # For complex widgets, setCellWidget is better.
+        self.example_messages_table.setCellWidget(row_position, 0, role_combo)
+
+        # Add an empty QTableWidgetItem for content, make it editable
+        content_item = QTableWidgetItem("")
+        self.example_messages_table.setItem(row_position, 1, content_item)
+        self.example_messages_table.scrollToBottom()
+
+    def _remove_selected_turn(self):
+        current_row = self.example_messages_table.currentRow()
+        if current_row >= 0:
+            self.example_messages_table.removeRow(current_row)
+        else:
+            QMessageBox.information(self, "Remove Turn", "Please select a row to remove.")
+
 
     def _refresh_conversation_list(self):
         self.log_browser.append("Refreshing conversation list...")
@@ -210,6 +272,30 @@ class FineTuningHubWidget(QWidget):
             # Assuming all listed files are to be used (no isSelected check here, but could be added)
             local_files_paths.append(item.text())
         params["local_files_paths"] = local_files_paths
+
+        # Collect system prompt
+        system_prompt_text = self.system_prompt_input.toPlainText().strip()
+        if system_prompt_text: # Only include if not empty
+            params["system_prompt"] = system_prompt_text
+        else:
+            params["system_prompt"] = None # Explicitly None if empty
+
+        # Collect example messages
+        example_messages = []
+        for row in range(self.example_messages_table.rowCount()):
+            role_widget = self.example_messages_table.cellWidget(row, 0) # QComboBox
+            content_item = self.example_messages_table.item(row, 1) # QTableWidgetItem
+
+            role = role_widget.currentText() if role_widget else None
+            content = content_item.text().strip() if content_item else None
+
+            if role and content: # Ensure both are valid
+                example_messages.append({"role": role, "content": content})
+
+        if example_messages: # Only include if not empty
+            params["example_messages"] = example_messages
+        else:
+            params["example_messages"] = None # Explicitly None if empty
 
         return params
 
