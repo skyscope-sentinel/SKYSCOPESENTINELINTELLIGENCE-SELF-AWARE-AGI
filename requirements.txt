@@ -1,0 +1,8 @@
+ollama
+PyQt6
+transformers
+peft
+accelerate
+bitsandbytes
+PyMuPDF
+datasets
