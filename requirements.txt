@@ -1,8 +1,12 @@
-ollama
+# For Skyscope Application UI and Ollama Interaction
 PyQt6
+ollama
+
+# For the generated trainer.py script (user's environment)
 transformers
 peft
 accelerate
 bitsandbytes
-PyMuPDF
-datasets
+torch # Often a sub-dependency of transformers, but good to list explicitly for trainer.py
+PyMuPDF # For PDF data extraction in trainer.py
+datasets # For Hugging Face Dataset object in trainer.py

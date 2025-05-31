@@ -13,14 +13,20 @@ from ui.chat_window import ChatWindowWidget # Existing
 # These will be uncommented as the files are created.
 from ui.verbose_display import VerboseDisplayWidget
 from ui.conversation_history import ConversationHistoryWidget
-from ui.fine_tuning_hub import FineTuningHubWidget # Import new widget
+from ui.fine_tuning_hub import FineTuningHubWidget
+from ui.model_management_widget import ModelManagementWidget
 
 
 class MainWindow(QMainWindow):
+    """
+    The main application window for the Skyscope Sentient AI Platform.
+    It sets up the overall UI structure, including multiple panels and tabs
+    for different functionalities like chat, model management, fine-tuning, etc.
+    """
     def __init__(self):
+        """Initializes the MainWindow, sets up UI components, stylesheet, and signals."""
         super().__init__()
         self.setWindowTitle("Sentient AI Platform")
-        # Increased default size to better accommodate three panels
         self.setGeometry(100, 100, 1400, 800)
 
         # Central widget will hold the main QSplitter
@@ -261,6 +267,10 @@ class MainWindow(QMainWindow):
 
 
     def _create_ui_components(self):
+        """
+        Creates and arranges the main UI components of the application window,
+        including the tabbed panels and the central chat widget, using a QSplitter.
+        """
         # Main splitter to divide left, center, and right panels
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal, self)
 
@@ -275,7 +285,12 @@ class MainWindow(QMainWindow):
         # self.conversation_history_widget_placeholder = QLabel("Placeholder for Conversation History") # Commented out
         # self.left_tab_widget.addTab(self.conversation_history_widget_placeholder, "History") # Commented out
 
-        self.left_tab_widget.addTab(self.model_selection_widget, "Models") # ModelSelection is now a tab too
+        self.left_tab_widget.addTab(self.model_selection_widget, "Models")
+
+        # Instantiate and add ModelManagementWidget
+        self.model_management_widget = ModelManagementWidget(self) # No instance passed now
+        self.left_tab_widget.addTab(self.model_management_widget, "Manage Models")
+
         self.left_tab_widget.addTab(QLabel("Placeholder for Chat Settings"), "Chat Settings")
 
         # Instantiate and add FineTuningHubWidget
@@ -313,12 +328,13 @@ class MainWindow(QMainWindow):
         self.main_layout.addWidget(self.main_splitter)
 
     def _connect_signals(self):
+        """Connects signals from various UI components to their respective slots or handlers."""
         # Connect model selection change to chat window (as before)
         self.model_selection_widget.model_combo.currentTextChanged.connect(
             self.chat_window_widget.update_selected_model_display
         )
 
-        # Connect history "Load Selected" - This will be fully active when ConversationHistoryWidget is done
+        # Connect history "Load Selected"
         if hasattr(self, 'conversation_history_widget'): # Check if placeholder is replaced
             self.conversation_history_widget.load_button.clicked.connect(
                 self._on_load_conversation_selected
@@ -336,9 +352,12 @@ class MainWindow(QMainWindow):
 
 
     def _on_load_conversation_selected(self):
-        # This method will be fully functional once ConversationHistoryWidget is implemented
+        """
+        Handles the 'Load Selected' button click from the ConversationHistoryWidget.
+        Loads the selected conversation into the chat window and verbose display.
+        """
         if not hasattr(self, 'conversation_history_widget') or not self.verbose_display_widget:
-            print("History or Verbose widget not available for loading conversation.")
+            print("ERROR (MainWindow): History or Verbose widget not available for loading conversation.")
             return
 
         selected_item = self.conversation_history_widget.history_list.currentItem() # history_list is defined in ConversationHistoryWidget
@@ -375,6 +394,7 @@ class MainWindow(QMainWindow):
 
 
 def main():
+    """Main function to initialize and run the PyQt6 application."""
     app = QApplication(sys.argv)
     main_window = MainWindow()
     main_window.show()
