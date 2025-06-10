@@ -2,11 +2,22 @@ from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTextBrowser
 from PyQt6.QtGui import QFont
 
 class VerboseDisplayWidget(QWidget):
+    """
+    A widget dedicated to displaying verbose text output, typically from
+    model interactions or other processes, in a read-only QTextBrowser
+    with a monospace font.
+    """
     def __init__(self, parent=None):
+        """
+        Initializes the VerboseDisplayWidget.
+        Args:
+            parent (QWidget, optional): The parent widget. Defaults to None.
+        """
         super().__init__(parent)
         self._init_ui()
 
     def _init_ui(self):
+        """Initializes the UI elements and layout for the verbose display."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0) # Use full space
 
@@ -36,18 +47,27 @@ class VerboseDisplayWidget(QWidget):
         layout.addWidget(self.text_browser)
         self.setLayout(layout)
 
-    def append_text(self, text_chunk):
-        """Appends a chunk of text to the display."""
+    def append_text(self, text_chunk: str):
+        """
+        Appends a chunk of text to the display.
+        Ensures the new text is visible by scrolling to the end.
+        Args:
+            text_chunk (str): The text to append.
+        """
         self.text_browser.append(text_chunk)
-        # self.text_browser.verticalScrollBar().setValue(self.text_browser.verticalScrollBar().maximum()) # Auto-scroll
+        self.text_browser.ensureCursorVisible() # More reliable than direct scrollbar manipulation
 
-    def set_text(self, full_text):
-        """Sets the entire content of the display."""
-        self.text_browser.setPlainText(full_text) # Use setPlainText for simple text, or setHtml for HTML
-        # self.text_browser.verticalScrollBar().setValue(self.text_browser.verticalScrollBar().maximum()) # Auto-scroll
+    def set_text(self, full_text: str):
+        """
+        Sets the entire content of the display, replacing any existing text.
+        Args:
+            full_text (str): The full text to display.
+        """
+        self.text_browser.setPlainText(full_text)
+        self.text_browser.ensureCursorVisible()
 
     def clear_display(self):
-        """Clears the display."""
+        """Clears all text from the display."""
         self.text_browser.clear()
 
 if __name__ == '__main__':

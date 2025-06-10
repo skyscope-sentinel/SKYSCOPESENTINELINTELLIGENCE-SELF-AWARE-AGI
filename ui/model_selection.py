@@ -3,13 +3,24 @@ from PyQt6.QtCore import Qt
 from core.ollama_integration import list_ollama_models
 
 class ModelSelectionWidget(QWidget):
+    """
+    A widget for selecting an Ollama model from a list of available models.
+    It provides a dropdown (QComboBox) to display model names and a button
+    to refresh this list by querying the Ollama instance.
+    """
     def __init__(self, parent=None):
+        """
+        Initializes the ModelSelectionWidget.
+        Args:
+            parent (QWidget, optional): The parent widget. Defaults to None.
+        """
         super().__init__(parent)
-        self.current_selected_model = None
+        self.current_selected_model = None # Stores the name of the currently selected model string
         self._init_ui()
         self.refresh_models_list() # Initial population
 
     def _init_ui(self):
+        """Initializes the UI elements and layout for the model selection widget."""
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
@@ -68,16 +79,27 @@ class ModelSelectionWidget(QWidget):
 
         self.setLayout(layout)
 
-    def _on_model_changed(self, model_name):
+    def _on_model_changed(self, model_name: str):
+        """
+        Slot connected to the QComboBox's currentTextChanged signal.
+        Updates the internal tracking of the selected model.
+        Args:
+            model_name (str): The new model name selected in the QComboBox.
+        """
         self.current_selected_model = model_name
         # This signal is connected in main.py to update ChatWindowWidget's display
-        # print(f"ModelSelectionWidget: Model changed to {model_name}") # For debugging
+        # print(f"INFO (ModelSelectionWidget): Model changed to {model_name}")
 
     def refresh_models_list(self):
-        # Placeholder for status update (e.g., in a status bar)
-        print("Refreshing Ollama models list...")
+        """
+        Refreshes the list of available Ollama models in the QComboBox.
+        Queries the Ollama instance and updates the dropdown.
+        Handles errors if Ollama is not accessible.
+        """
+        print("INFO (ModelSelectionWidget): Refreshing Ollama models list...")
+        # self._update_log_browser_placeholder("INFO: Refreshing Ollama models list...") # REMOVED
         try:
-            models = list_ollama_models()
+            models = list_ollama_models() # This now returns list of names directly
             self.model_combo.clear()
             if models:
                 self.model_combo.addItems(models)
@@ -88,24 +110,26 @@ class ModelSelectionWidget(QWidget):
                     self.model_combo.setCurrentText(self.current_selected_model)
                 print(f"Models loaded: {models}")
             else:
-                self.model_combo.addItem("No models found")
+                self.model_combo.addItem("No models found") # Placeholder item
                 self.model_combo.setEnabled(False)
-                print("No Ollama models found during refresh.")
-                # Optionally show a message box, but console print for now
-                # QMessageBox.information(self, "Models", "No Ollama models found. Please ensure Ollama is running and models are available.")
-        except Exception as e:
-            print(f"Error refreshing models list: {e}")
+                print("INFO (ModelSelectionWidget): No Ollama models found during refresh.") # Replaced placeholder
+        except Exception as e: # General exception catch, as list_ollama_models handles ollama.ResponseError
+            print(f"ERROR (ModelSelectionWidget): Error refreshing models list: {e}") # Replaced placeholder
             self.model_combo.clear()
             self.model_combo.addItem("Error loading models")
             self.model_combo.setEnabled(False)
-            QMessageBox.warning(self, "Error", f"Could not fetch models from Ollama: {e}\n\nPlease ensure Ollama is running and accessible.")
+            QMessageBox.warning(self, "Ollama Connection Error",
+                                f"Could not fetch models from Ollama: {e}\n\n"
+                                "Please ensure Ollama is running and accessible at the configured host.")
         finally:
-            # Placeholder for status update
-            print("Model refresh finished.")
+            print("INFO (ModelSelectionWidget): Model refresh finished.") # Replaced placeholder
 
-    def get_selected_model(self):
+    def get_selected_model(self) -> str | None:
+        """
+        Returns the name of the currently selected model.
+        Returns None if no valid model is selected or available.
+        """
         if self.model_combo.isEnabled() and self.model_combo.count() > 0:
-            # Check if the current item is not one of the placeholder error messages
             current_text = self.model_combo.currentText()
             if current_text not in ["No models found", "Error loading models"]:
                 return current_text

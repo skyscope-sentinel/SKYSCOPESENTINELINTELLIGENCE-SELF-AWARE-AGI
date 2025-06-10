@@ -8,7 +8,13 @@ import subprocess # For calling ollama create
 import tempfile # For temporary Modelfile
 
 class TuningManager:
+    """
+    Manages the fine-tuning process, including data preparation,
+    training script generation, and monitoring of adapter files.
+    It does NOT directly execute the training, but prepares for it.
+    """
     def __init__(self):
+        """Initializes the TuningManager."""
         self._monitoring_thread = None
         self._stop_monitoring_event = threading.Event()
 
@@ -19,7 +25,16 @@ class TuningManager:
         The formatted_conversation_string is "<s>[INST] prompt [/INST] response </s>..." for all turns in one conversation.
         """
         try:
-            os.makedirs(os.path.dirname(temp_jsonl_path), exist_ok=True)
+            # Ensure directory for the output JSONL file exists
+            jsonl_dir = os.path.dirname(temp_jsonl_path)
+            if not jsonl_dir: # Handle cases where temp_jsonl_path might be just a filename
+                jsonl_dir = "." # Assume current directory
+            os.makedirs(jsonl_dir, exist_ok=True)
+        except OSError as e:
+            print(f"ERROR (TuningManager): Failed to create directory for JSONL file {jsonl_dir}: {e}")
+            return False
+
+        try:
             with open(temp_jsonl_path, "w", encoding="utf-8") as outfile:
                 for filepath in conversation_filepaths:
                     try:
@@ -53,20 +68,21 @@ class TuningManager:
 
                         if formatted_conversation_string: # Only write if we formed valid pairs
                             outfile.write(json.dumps({"text": formatted_conversation_string.strip()}) + "\n")
-                        elif not messages and not formatted_conversation_string:
-                            print(f"Warning: No valid user/assistant pairs to format in {filepath}")
+                        elif not messages and not formatted_conversation_string: # Ensure this condition is accurate
+                            print(f"Warning (TuningManager): No valid user/assistant pairs found or processed in {filepath}")
 
-
-                    except json.JSONDecodeError as e:
-                        print(f"Error decoding JSON from {filepath}: {e}. Skipping this file.")
+                    except (IOError, json.JSONDecodeError, TypeError) as e: # Catch more specific errors
+                        print(f"ERROR (TuningManager): Error processing conversation file {filepath}: {e}. Skipping this file.")
+                        # Depending on desired strictness, could `return False` here to stop all processing.
+                        # For now, we skip the problematic file and continue.
                         continue
-                    except IOError as e:
-                        print(f"Error reading file {filepath}: {e}. Skipping this file.")
-                        continue
-            print(f"Successfully prepared conversation data at: {temp_jsonl_path}")
+            print(f"INFO (TuningManager): Successfully prepared conversation data at: {temp_jsonl_path}")
             return True
-        except Exception as e:
-            print(f"Failed to prepare conversation data: {e}")
+        except IOError as e: # Error opening the main outfile
+            print(f"ERROR (TuningManager): Failed to open or write to JSONL file {temp_jsonl_path}: {e}")
+            return False
+        except Exception as e: # Catch any other unexpected errors during the process
+            print(f"ERROR (TuningManager): Unexpected error during conversation data preparation: {e}")
             return False
 
     def generate_training_script(self, parameters: dict, script_save_path: str,
@@ -75,11 +91,27 @@ class TuningManager:
                                  local_files_list: list[str]) -> bool:
         """
         Generates a Python training script based on the provided parameters.
+
+        Args:
+            parameters (dict): A dictionary containing UI parameters like base_model, lora_rank, etc.
+            script_save_path (str): The full path where the generated Python script should be saved.
+            conversation_jsonl_path (str | None): Path to the prepared JSONL conversation data, or None.
+            adapter_output_path (str): Path where the training script will save the LoRA adapter.
+            local_files_list (list[str]): List of paths to local TXT/PDF files for training.
+
+        Returns:
+            bool: True if script generation was successful, False otherwise.
         """
         try:
-            os.makedirs(os.path.dirname(script_save_path), exist_ok=True)
-            os.makedirs(adapter_output_path, exist_ok=True) # Ensure adapter output dir also exists
+            script_dir = os.path.dirname(script_save_path)
+            if not script_dir: script_dir = "."
+            os.makedirs(script_dir, exist_ok=True)
+            os.makedirs(adapter_output_path, exist_ok=True)
+        except OSError as e:
+            print(f"ERROR (TuningManager): Failed to create directories for script or adapter output: {e}")
+            return False
 
+        try:
             # Prepare parameters for template insertion
             base_model = parameters.get('base_model', 'default_model_path')
             lora_rank = int(parameters.get('lora_rank', 16))
@@ -99,8 +131,9 @@ class TuningManager:
             # Safest is to use raw strings or ensure backslashes are doubled if on Windows and paths are manually constructed.
             # For this template, simple string insertion should be okay if paths are posix-like or correctly escaped by user.
 
-            script_template = f"""#!/usr/bin/env python
+            script_template = f"""#!/usr/bin/env python3
 # Generated Training Script by Skyscope Sentient AI Platform
+# This script is intended to be run by a user in an environment with all necessary dependencies installed.
 import os
 import json
 import argparse
@@ -297,18 +330,25 @@ if __name__ == "__main__":
                 f.write(script_template)
 
             # Make the script executable (optional, good practice)
-            # This might fail on some systems or if permissions are restricted
+            with open(script_save_path, "w", encoding="utf-8") as f:
+                f.write(script_template)
+
+            # Make the script executable
             try:
                 os.chmod(script_save_path, 0o755)
+                print(f"INFO (TuningManager): Made script executable: {script_save_path}")
             except OSError as e:
-                print(f"Warning: Could not make script executable: {e}")
+                print(f"Warning (TuningManager): Could not make script executable {script_save_path}: {e}")
 
-            print(f"Successfully generated training script at: {script_save_path}")
+            print(f"INFO (TuningManager): Successfully generated training script at: {script_save_path}")
             return True
-        except Exception as e:
-            print(f"Failed to generate training script: {e}")
+        except IOError as e:
+            print(f"ERROR (TuningManager): Failed to write training script to {script_save_path}: {e}")
+            return False
+        except Exception as e: # Catch any other unexpected errors
+            print(f"ERROR (TuningManager): Unexpected error generating training script: {e}")
             import traceback
-            traceback.print_exc() # Print full traceback for debugging
+            traceback.print_exc()
             return False
 
     def start_fine_tuning_process(self, parameters: dict, log_callback: callable, completion_callback: callable):
@@ -333,20 +373,40 @@ if __name__ == "__main__":
         # This method is NOT CALLED by the UI in the current subtask for actual process starting.
         # The UI calls generate_training_script then start_adapter_monitoring.
         # The actual subprocess launch is deferred.
-        print("TuningManager.start_fine_tuning_process is a placeholder for launching the training script.")
-        log_callback("INFO: Subprocess execution (actually running trainer.py) is not implemented in this step of TuningManager.")
+        print("INFO (TuningManager): TuningManager.start_fine_tuning_process is a placeholder for launching the training script.")
+        log_callback("INFO: Subprocess execution (actually running trainer.py) is not part of TuningManager.start_fine_tuning_process in this version.")
 
-        # Simulate a quick success for placeholder behavior if needed by some test (e.g. if UI called this)
-        # completion_callback(True, "simulated_adapter_path_for_placeholder_execution_from_start_fine_tuning_process")
-        return "simulated_adapter_path_for_placeholder_execution_from_start_fine_tuning_process"
+        # This method, if called, would typically orchestrate prepare_data, generate_script, and then
+        # use subprocess.Popen to run the generated script, along with threads for log_callback and completion_callback.
+        # That full subprocess logic is complex and deferred.
+        # For now, it does nothing that leads to completion_callback being called with a real result.
+
+        # If this placeholder were to be used by UI expecting a typical flow, one might simulate:
+        # log_callback("INFO: Simulating process start...")
+        # import threading, time
+        # def _fake_process():
+        #     time.sleep(1) # Simulate work
+        #     log_callback("INFO: Fake process finished.")
+        #     completion_callback(True, "simulated/adapter/path/from/placeholder_start_fine_tuning")
+        # threading.Thread(target=_fake_process).start()
+
+        return "simulated/adapter/path/if_ui_depended_on_this_placeholder_directly"
+
 
     def start_adapter_monitoring(self, adapter_output_path: str, detection_callback: callable, stop_callback: callable):
         """
         Starts a thread to monitor the adapter_output_path for adapter files.
         Calls detection_callback when files are found, or stop_callback if monitoring is stopped.
+
+        Args:
+            adapter_output_path (str): The directory path to monitor for adapter files.
+            detection_callback (callable): Function to call when adapter files are detected.
+                                           It receives the adapter_output_path as an argument.
+            stop_callback (callable): Function to call when monitoring stops for any reason.
+                                      It receives a reason string as an argument.
         """
         if self._monitoring_thread and self._monitoring_thread.is_alive():
-            print("Warning: Monitoring thread is already running. Stopping it before starting a new one.")
+            print("INFO (TuningManager): Monitoring thread is already running. Attempting to stop it before starting a new one.")
             self.stop_adapter_monitoring() # Signal existing thread to stop
             # Give a moment for the thread to actually stop if it was in sleep or a short I/O operation
             if self._monitoring_thread and self._monitoring_thread.is_alive():
@@ -418,15 +478,30 @@ if __name__ == "__main__":
             # Do not join here from a UI-triggered call to avoid freezing the UI.
             # The thread is a daemon; it will exit. The stop_callback handles UI feedback.
         else:
-            print("No active monitoring thread to stop, or thread already stopped.")
-            # Optionally, could call stop_callback here if some UI state needs reset
-            # and it relies on stop_callback for that. But typically, if no thread, no action.
+            print("INFO (TuningManager): No active monitoring thread to stop, or thread already stopped.")
 
     def create_ollama_model_with_adapter(self, new_model_name: str, base_model_name: str,
                                          adapter_path: str, system_prompt: str or None,
                                          example_messages: list[dict] or None,
                                          log_callback: callable) -> bool:
-        log_callback(f"Attempting to create Ollama model '{new_model_name}' from base '{base_model_name}' using adapter at '{adapter_path}'.")
+        """
+        Creates a new Ollama model using a base model and a fine-tuned LoRA adapter.
+        It generates a temporary Modelfile and uses `ollama create` command.
+
+        Args:
+            new_model_name (str): The name for the new Ollama model (e.g., "my-custom-model").
+            base_model_name (str): The name of the base Ollama model (e.g., "llama2:7b").
+            adapter_path (str): Filesystem path to the directory containing the LoRA adapter files
+                                (e.g., adapter_model.safetensors, adapter_config.json).
+            system_prompt (str | None): An optional system prompt for the new model.
+            example_messages (list[dict] | None): Optional list of example messages, each a dict
+                                                with "role" and "content" keys.
+            log_callback (callable): A function to call for logging output during the process.
+
+        Returns:
+            bool: True if the model creation was successful, False otherwise.
+        """
+        log_callback(f"INFO: Attempting to create Ollama model '{new_model_name}' from base '{base_model_name}' using adapter at '{adapter_path}'.")
 
         modelfile_content = f"FROM {base_model_name}\n"
 
@@ -450,8 +525,9 @@ if __name__ == "__main__":
             log_callback(f"ERROR: No adapter model file (adapter_model.safetensors, adapter_model.bin, or pytorch_model.bin) found in {adapter_path}")
             return False
 
-        # Ensure path is quoted if it contains spaces, using Python's string repr for safety
-        modelfile_content += f"ADAPTER {json.dumps(actual_adapter_file)}\n" # json.dumps will handle quotes and escapes
+        # Ensure path is quoted if it contains spaces, and make it absolute.
+        abs_adapter_path = os.path.abspath(actual_adapter_file)
+        modelfile_content += f"ADAPTER {json.dumps(abs_adapter_path)}\n"
 
         if system_prompt:
             # For multi-line system prompts or prompts with quotes, use triple quotes in Modelfile
@@ -472,42 +548,47 @@ if __name__ == "__main__":
         try:
             with os.fdopen(temp_modelfile_fd, 'w', encoding='utf-8') as tmp_file:
                 tmp_file.write(modelfile_content)
-            log_callback(f"Temporary Modelfile created at: {temp_modelfile_path}")
+            log_callback(f"INFO: Temporary Modelfile created at: {temp_modelfile_path}")
             log_callback(f"--- Modelfile Content ---\n{modelfile_content}\n--- End Modelfile ---")
 
             command = ["ollama", "create", new_model_name, "-f", temp_modelfile_path]
-            log_callback(f"Executing command: {' '.join(command)}")
+            log_callback(f"INFO: Executing command: {' '.join(command)}")
 
             process = subprocess.run(command, capture_output=True, text=True, check=False)
 
-            log_callback("\n--- Ollama Create Output ---")
-            log_callback(process.stdout.strip() if process.stdout and process.stdout.strip() else "(no stdout)")
+            log_callback("\n--- Ollama Create Output (stdout) ---")
+            if process.stdout and process.stdout.strip():
+                for line in process.stdout.strip().splitlines():
+                    log_callback(f"OLLAMA STDOUT: {line}")
+            else:
+                log_callback("OLLAMA STDOUT: (empty)")
 
             if process.stderr and process.stderr.strip():
-                log_callback("\n--- Ollama Create Errors ---")
-                log_callback(process.stderr.strip())
+                log_callback("\n--- Ollama Create Errors (stderr) ---")
+                for line in process.stderr.strip().splitlines():
+                    log_callback(f"OLLAMA STDERR: {line}")
 
             if process.returncode == 0:
-                log_callback(f"\nSUCCESS: Ollama model '{new_model_name}' created successfully.")
+                log_callback(f"SUCCESS: Ollama model '{new_model_name}' created successfully.")
                 return True
             else:
-                log_callback(f"\nERROR: 'ollama create' command failed with return code {process.returncode}.")
+                log_callback(f"ERROR: 'ollama create' command failed with return code {process.returncode}.")
                 return False
-        except FileNotFoundError:
+        except FileNotFoundError: # Specifically for 'ollama' command not found
             log_callback("ERROR: 'ollama' command not found. Please ensure Ollama is installed and in your system PATH.")
             return False
-        except Exception as e:
-            log_callback(f"ERROR: An unexpected exception occurred during 'ollama create': {e}")
+        except Exception as e: # Catch other exceptions during subprocess.run or file ops
+            log_callback(f"ERROR: An unexpected exception occurred during 'ollama create' process: {e}")
             import traceback
-            log_callback(traceback.format_exc())
+            log_callback(f"TRACEBACK: {traceback.format_exc()}")
             return False
         finally:
-            if os.path.exists(temp_modelfile_path):
+            if os.path.exists(temp_modelfile_path): # Ensure temp file is always cleaned up
                 try:
                     os.remove(temp_modelfile_path)
-                    log_callback(f"Cleaned up temporary modelfile: {temp_modelfile_path}")
+                    log_callback(f"INFO: Cleaned up temporary modelfile: {temp_modelfile_path}")
                 except OSError as e:
-                    log_callback(f"Warning: Could not remove temporary modelfile {temp_modelfile_path}: {e}")
+                    log_callback(f"WARNING: Could not remove temporary modelfile {temp_modelfile_path}: {e}")
 
 
 # Example usage (for testing TuningManager methods directly)

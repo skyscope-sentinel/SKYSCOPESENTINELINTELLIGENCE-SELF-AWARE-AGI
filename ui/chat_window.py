@@ -7,7 +7,18 @@ import uuid
 from datetime import datetime
 
 class ChatWindowWidget(QWidget):
+    """
+    Widget for the main chat interface.
+    It includes areas for displaying the conversation, user input,
+    and sending messages to the selected Ollama model.
+    Handles streaming responses and saving conversations.
+    """
     def __init__(self, parent=None):
+        """
+        Initializes the ChatWindowWidget.
+        Args:
+            parent (QWidget, optional): The parent widget. Defaults to None.
+        """
         super().__init__(parent)
         self.current_selected_model_for_chat = None
         self.current_conversation_id = None
@@ -19,10 +30,15 @@ class ChatWindowWidget(QWidget):
         self._init_ui()
 
     def set_verbose_display(self, verbose_widget):
-        """Sets the reference to the verbose display widget."""
+        """
+        Sets a reference to the VerboseDisplayWidget for logging raw responses or verbose info.
+        Args:
+            verbose_widget (VerboseDisplayWidget): The verbose display widget instance.
+        """
         self.verbose_display = verbose_widget
 
     def _init_ui(self):
+        """Initializes the UI elements and layout for the chat window."""
         main_layout = QVBoxLayout(self)
 
         # Styling placeholder:
@@ -109,8 +125,13 @@ class ChatWindowWidget(QWidget):
         main_layout.addLayout(input_layout, 1) # Less stretch factor for input section
         self.setLayout(main_layout)
 
-    def update_selected_model_display(self, model_name):
-        """Public method to be called when the model selection changes."""
+    def update_selected_model_display(self, model_name: str):
+        """
+        Updates the label displaying the currently selected model.
+        Called when the model selection changes in another widget (e.g., ModelSelectionWidget).
+        Args:
+            model_name (str): The name of the newly selected model.
+        """
         self.current_selected_model_for_chat = model_name
         if model_name:
             self.selected_model_label.setText(f"Current Model: {model_name}")
@@ -121,6 +142,11 @@ class ChatWindowWidget(QWidget):
 
 
     def _on_send_clicked(self):
+        """
+        Handles the 'Send' button click.
+        Gets the prompt, sends it to the Ollama model (with streaming),
+        updates the chat display, and saves the conversation.
+        """
         prompt_text = self.prompt_input.toPlainText().strip()
         if not prompt_text:
             QMessageBox.warning(self, "Input Error", "Prompt cannot be empty.")
@@ -198,7 +224,12 @@ class ChatWindowWidget(QWidget):
             self.current_assistant_message = "" # Reset for next turn
 
     def _handle_streamed_chunk(self, chunk_content: str):
-        """Handles a chunk of streamed content from Ollama."""
+        """
+        Handles a chunk of streamed content received from Ollama.
+        Appends the chunk to the chat display and verbose display (if available).
+        Args:
+            chunk_content (str): The piece of text content from the stream.
+        """
         self.current_assistant_message += chunk_content
 
         # Append the chunk to the QTextEdit. Using insertPlainText ensures it goes where the cursor is.
@@ -257,15 +288,21 @@ class ChatWindowWidget(QWidget):
         self.timestamp_start = None # Resets start timestamp
         self.current_assistant_message = "" # Reset accumulator for streamed response
         # Update any other UI elements if needed (e.g., title, status bar if you add one)
-        self.selected_model_label.setText("Current Model: Not Selected") # Reset model display too
-        print("Chat cleared, new session initiated.")
+        self.selected_model_label.setText("Current Model: Not Selected")
+        print("INFO (ChatWindow): Chat cleared, new session initiated.")
 
 
-    def load_conversation_from_data(self, conversation_data):
+    def load_conversation_from_data(self, conversation_data: dict):
         """
-        Loads a conversation into the chat window from a dictionary.
+        Loads a past conversation's data into the chat window.
+        Clears any current chat content and populates the display with messages
+        from the loaded conversation. Updates internal state to continue this conversation.
+
+        Args:
+            conversation_data (dict): A dictionary matching the conversation structure
+                                      (e.g., from memory_manager.load_conversation).
         """
-        self.clear_chat() # Start fresh
+        self.clear_chat()
 
         self.current_conversation_id = conversation_data.get("conversation_id")
         self.timestamp_start = conversation_data.get("timestamp_start")
